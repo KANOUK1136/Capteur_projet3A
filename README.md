@@ -1,0 +1,1 @@
+PIN TEMP&HUM Sensor : pin 16 GPIO 23 p4
