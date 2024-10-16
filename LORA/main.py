@@ -22,10 +22,18 @@ import time
 import select
 import termios
 import tty
+import RPi.GPIO as GPIO
+import time
+import board
+import adafruit_dht
 from threading import Timer
 
 old_settings = termios.tcgetattr(sys.stdin)
 tty.setcbreak(sys.stdin.fileno())
+
+DHT_PIN = board.D23
+
+dht_sensor = adafruit_dht.DHT11(DHT_PIN)
 
 
 #
@@ -43,6 +51,11 @@ def get_cpu_temp():
     cpu_temp = tempFile.read()
     tempFile.close()
     return float(cpu_temp)/1000
+
+def get_dht11_temp():
+    temperature = dht_sensor.temperature
+    return float(temperature)
+
 
 #   serial_num
 #       PiZero, Pi3B+, and Pi4B use "/dev/ttyS0"
@@ -62,8 +75,8 @@ def get_cpu_temp():
 #        It will print the RSSI value when it receives each message
 #
 
-# node = sx126x.sx126x(serial_num = "/dev/ttyS0",freq=433,addr=0,power=22,rssi=False,air_speed=2400,relay=False)
-node = sx126x.sx126x(serial_num = "/dev/ttyS0",freq=868,addr=0,power=22,rssi=True,air_speed=2400,relay=False)
+#node = sx126x.sx126x(serial_num = "/dev/ttyS0",freq=433,addr=2,power=22,rssi=False,air_speed=2400,relay=False)
+node = sx126x.sx126x(serial_num = "/dev/ttyS0",freq=868,addr=5,power=22,rssi=True,air_speed=2400,relay=False)
 
 def send_deal():
     get_rec = ""
@@ -115,11 +128,32 @@ def send_cpu_continue(continue_or_not = True):
         timer_task.cancel()
         pass
 
+def send_dht11_continue(continue_or_not = True):
+    if continue_or_not:
+        global timer_task
+        global seconds
+        #
+        # boarcast the cpu temperature at 868.125MHz
+        #
+        data = bytes([255]) + bytes([255]) + bytes([18]) + bytes([255]) + bytes([255]) + bytes([12]) + "Temperature:".encode()+str(get_dht11_temp()).encode()+" C".encode()
+        node.send(data)
+        time.sleep(0.2)
+        timer_task = Timer(seconds,send_dht11_continue)
+        timer_task.start()
+    else:
+        data = bytes([255]) + bytes([255]) + bytes([18]) + bytes([255]) + bytes([255]) + bytes([12]) + "Temperature:".encode()+str(get_dht11_temp()).encode()+" C".encode()
+        node.send(data)
+        time.sleep(0.2)
+        timer_task.cancel()
+        pass
+
+
 try:
     time.sleep(1)
     print("Press \033[1;32mEsc\033[0m to exit")
     print("Press \033[1;32mi\033[0m   to send")
     print("Press \033[1;32ms\033[0m   to send cpu temperature every 10 seconds")
+    print("Press \033[1;32me\033[0m   to send dht11 temperature every 10 seconds")
     
     # it will send rpi cpu temperature every 10 seconds 
     seconds = 10
@@ -138,6 +172,19 @@ try:
             if c == '\x73':
                 print("Press \033[1;32mc\033[0m   to exit the send task")
                 timer_task = Timer(seconds,send_cpu_continue)
+                timer_task.start()
+                
+                while True:
+                    if sys.stdin.read(1) == '\x63':
+                        timer_task.cancel()
+                        print('\x1b[1A',end='\r')
+                        print(" "*100)
+                        print('\x1b[1A',end='\r')
+                        break
+
+            if c == '\x65':
+                print("Press \033[1;32mc\033[0m   to exit the send task")
+                timer_task = Timer(seconds,send_dht11_continue)
                 timer_task.start()
                 
                 while True:
